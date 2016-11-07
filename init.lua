@@ -1,7 +1,7 @@
 -- init grid
 hs.grid.MARGINX 	= 0
 hs.grid.MARGINY 	= 0
-hs.grid.GRIDWIDTH  	= 3
+hs.grid.GRIDWIDTH  	= 5
 hs.grid.GRIDHEIGHT 	= 2
 
 -- disable animation
@@ -13,21 +13,29 @@ local mash       = {"ctrl", "alt"}
 local mash_app 	 = {"cmd", "alt", "ctrl"}
 local mash_shift = {"ctrl", "alt", "shift"}
 local mash_cmd	 = {"cmd", "cntrl", "shift"}	
+local mash_vd    = {"cmd"}
+local mash_vd_shift    = {"cmd", "shift"}
 
 --------------------------------------------------------------------------------
-appCuts = {
-  t = 'iterm2',
-  g = 'Google chrome',
+workCuts = {
+  t = 'iTerm2',
   s = 'Sublime Text',
+  i = 'IntelliJ IDEA-EAP',
+}
+
+commCuts = {
   c = 'Slack',
-  f = 'Finder',
+  g = 'Google Chrome',
   o = 'Microsoft Outlook',
-  i = 'IntelliJ IDEA Ultimate',
+}
+
+otherCuts = {
+  f = 'Finder',
   a = 'Activity Monitor'
 }
 
 -- Launch applications
-for key, app in pairs(appCuts) do
+for key, app in pairs(workCuts) do
   hs.hotkey.bind(mash_app, key, function () hs.application.launchOrFocus(app) end)
 end
 
@@ -84,8 +92,57 @@ end
 hs.application.watcher.new(auto_tile):start()
 
 -- config auto-reload
-local function reload_config(files)
-    hs.reload()
-end
-hs.pathwatcher.new(hs.configdir, reload_config):start()
+hs.hotkey.bind(mash_app, 'r', hs.reload)
+--hs.pathwatcher.new(hs.configdir, hs.reload):start()
 hs.alert.show("Config Re-loaded")
+
+
+-- virtual desktops (contexts)
+hs.window.switcher.ui.showSelectedThumbnail = false
+hs.window.switcher.ui.showThumbnails = false
+
+local switchers = {}
+
+local function virt_win_switch(appMap)
+  local appNames = {}
+  local idx = 0
+  for key, app in  pairs(appMap) do
+    appNames[app] = app
+    idx = idx + 1
+  end
+  
+  local winFilter = hs.window.filter.new(function(w) 
+    return w:title() ~= "" and appNames[w:application():title()] ~= nil 
+  end)
+
+  return { 
+    switcher = hs.window.switcher.new(winFilter),
+    appNames = appNames,
+    winFilter = winFilter,
+    actWindow = nil
+  }  
+end  
+
+for idx, space in pairs{workCuts, commCuts, otherCuts} do
+  -- create switcher
+  switchers[idx] = virt_win_switch(space)
+  -- add watcher to track active window per virtual desktop
+  switchers[idx].winFilter:subscribe(hs.window.filter.windowFocused,
+    function() switchers[idx].actWindow = hs.window:focusedWindow() end)
+  -- make all "workspaced" windows to be maximized by default
+  switchers[idx].winFilter:subscribe(hs.window.filter.windowCreated,
+    hs.grid.maximizeWindow)
+  -- bind forward window switch
+  hs.hotkey.bind(mash_vd, 'F'..idx, nil, function()
+    local win = hs.window.focusedWindow()
+    if switchers[idx].actWindow == nil or (win and switchers[idx].appNames[win:application():title()]) then
+      switchers[idx].switcher:next()
+    else
+      if switchers[idx].actWindow then switchers[idx].actWindow:focus() end
+    end
+  end)
+  -- bind backward window switch
+  hs.hotkey.bind(mash_vd_shift, 'F'..idx, nil, function() 
+    switchers[idx].switcher:previous()
+  end)
+end
